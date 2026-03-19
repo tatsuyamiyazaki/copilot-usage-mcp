@@ -11,7 +11,7 @@ import { registerTeamTool } from "./tools/team.js";
 import { registerSeatsTool } from "./tools/seats.js";
 import { registerSummaryTool } from "./tools/summary.js";
 
-config();
+config({ quiet: true });
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");

@@ -5,8 +5,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Cache } from "./lib/cache.js";
 import { GitHubClient } from "./lib/github-client.js";
-import { registerEnterpriseTool } from "./tools/enterprise.js";
-import { registerOrgTool } from "./tools/org.js";
+import { registerEnterpriseTools } from "./tools/enterprise.js";
+import { registerOrgTools } from "./tools/org.js";
 import { registerTeamTool } from "./tools/team.js";
 import { registerSeatsTool } from "./tools/seats.js";
 import { registerSummaryTool } from "./tools/summary.js";
@@ -33,12 +33,12 @@ const client = new GitHubClient(token, cache);
 
 const server = new McpServer({
   name: "copilot-usage",
-  version: "1.0.0",
+  version: "2.0.0",
 });
 
-registerEnterpriseTool(server, client, enterprise);
-registerOrgTool(server, client, org);
-registerTeamTool(server, client, org);
+registerEnterpriseTools(server, client, enterprise);
+registerOrgTools(server, client, org);
+registerTeamTool(server);
 registerSeatsTool(server, client, org);
 registerSummaryTool(server, client, enterprise, org);
 

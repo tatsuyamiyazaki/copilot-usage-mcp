@@ -1,33 +1,20 @@
 import { Octokit } from "@octokit/rest";
 import { Cache } from "./cache.js";
-import type { CopilotMetricsDay, CopilotSeatsResponse } from "./types.js";
+import type {
+  UsageReport1DayResponse,
+  UsageReport28DayResponse,
+  UsageReportResult,
+  UsageReportRangeResult,
+  DayResult,
+  CopilotSeatsResponse,
+} from "./types.js";
 
-export interface DateChunk {
-  since: string;
-  until: string;
-}
+const API_VERSION = "2026-03-10";
 
-export function splitIntoChunks(since: string, until: string): DateChunk[] {
-  const chunks: DateChunk[] = [];
-  let current = new Date(since + "T00:00:00Z");
-  const end = new Date(until + "T00:00:00Z");
-
-  while (current <= end) {
-    const chunkEnd = new Date(current);
-    chunkEnd.setUTCDate(chunkEnd.getUTCDate() + 27); // 28 days inclusive
-    const actualEnd = chunkEnd > end ? end : chunkEnd;
-
-    chunks.push({
-      since: current.toISOString().split("T")[0],
-      until: actualEnd.toISOString().split("T")[0],
-    });
-
-    current = new Date(actualEnd);
-    current.setUTCDate(current.getUTCDate() + 1);
-  }
-
-  return chunks;
-}
+// 1-day TTL: 昨日のレポートは24時間でリフレッシュ
+const TTL_YESTERDAY_MS = 24 * 60 * 60 * 1000;
+// 28-day/latest TTL: 12時間（1日1回更新される）
+const TTL_LATEST_MS = 12 * 60 * 60 * 1000;
 
 export class GitHubClient {
   private octokit: Octokit;
@@ -38,91 +25,109 @@ export class GitHubClient {
     this.cache = cache;
   }
 
-  async fetchMetrics(
-    level: "enterprise" | "org" | "team",
-    slug: string,
-    since: string,
-    until: string,
-    forceRefresh: boolean,
-    apiParams: { identifier: string; teamSlug?: string }
-  ): Promise<CopilotMetricsDay[]> {
-    const chunks = splitIntoChunks(since, until);
-    const allMetrics: CopilotMetricsDay[] = [];
+  /**
+   * エンタープライズのメトリクスレポートを取得する。
+   * day が指定された場合は 1-day エンドポイント、未指定の場合は 28-day/latest エンドポイントを使用。
+   * reportKind: "aggregate" = 集計メトリクス / "users" = ユーザーレベルメトリクス
+   */
+  async fetchEnterpriseReport(
+    enterprise: string,
+    reportKind: "aggregate" | "users",
+    day?: string,
+    forceRefresh = false
+  ): Promise<UsageReportResult> {
+    const cacheSlug = `${enterprise}/${reportKind}`;
+    const cacheKey = day ?? "latest";
+    const ttlMs = day
+      ? (this.isYesterday(day) ? TTL_YESTERDAY_MS : undefined)
+      : TTL_LATEST_MS;
 
-    for (const chunk of chunks) {
-      const daysInChunk = this.getDatesInRange(chunk.since, chunk.until);
-      const cachedDays: CopilotMetricsDay[] = [];
-      const uncachedDates: string[] = [];
-
-      if (!forceRefresh) {
-        for (const date of daysInChunk) {
-          if (this.cache.shouldRefreshMetric(date)) {
-            uncachedDates.push(date);
-            continue;
-          }
-          const cached = await this.cache.readMetric(level, slug, date);
-          if (cached) {
-            cachedDays.push(cached as CopilotMetricsDay);
-          } else {
-            uncachedDates.push(date);
-          }
-        }
-      } else {
-        uncachedDates.push(...daysInChunk);
-      }
-
-      if (uncachedDates.length > 0) {
-        try {
-          const apiData = await this.callMetricsApi(level, chunk.since, chunk.until, apiParams);
-          for (const day of apiData) {
-            await this.cache.writeMetric(level, slug, day.date, day);
-          }
-          allMetrics.push(...cachedDays, ...apiData.filter(d => daysInChunk.includes(d.date)));
-        } catch (error) {
-          // ネットワークエラー時: キャッシュにあるデータだけでも返す
-          if (cachedDays.length > 0) {
-            allMetrics.push(...cachedDays);
-          } else {
-            throw error;
-          }
-        }
-      } else {
-        allMetrics.push(...cachedDays);
-      }
+    if (!forceRefresh && !(day && this.isTodayOrFuture(day))) {
+      const cached = await this.cache.readReport("enterprise", cacheSlug, cacheKey, ttlMs);
+      if (cached) return cached as UsageReportResult;
     }
 
-    return allMetrics.sort((a, b) => a.date.localeCompare(b.date));
+    const endpoint = this.buildEnterpriseEndpoint(reportKind, !!day);
+    const params: Record<string, string> = { enterprise };
+    if (day) params.day = day;
+
+    const apiResponse = await this.callMetricsApi(endpoint, params);
+    const content = await this.downloadReportContent(apiResponse.download_links);
+    const result: UsageReportResult = { ...apiResponse, content };
+
+    if (!day || !this.isTodayOrFuture(day)) {
+      await this.cache.writeReport("enterprise", cacheSlug, cacheKey, result);
+    }
+
+    return result;
   }
 
-  private async callMetricsApi(
-    level: "enterprise" | "org" | "team",
-    since: string,
-    until: string,
-    apiParams: { identifier: string; teamSlug?: string }
-  ): Promise<CopilotMetricsDay[]> {
-    const params: Record<string, string | number> = {
-      since: since + "T00:00:00Z",
-      until: until + "T23:59:59Z",
-      per_page: 100,
-    };
+  /**
+   * Organization のメトリクスレポートを取得する。
+   * day が指定された場合は 1-day エンドポイント、未指定の場合は 28-day/latest エンドポイントを使用。
+   * reportKind: "aggregate" = 集計メトリクス / "users" = ユーザーレベルメトリクス
+   */
+  async fetchOrgReport(
+    org: string,
+    reportKind: "aggregate" | "users",
+    day?: string,
+    forceRefresh = false
+  ): Promise<UsageReportResult> {
+    const cacheSlug = `${org}/${reportKind}`;
+    const cacheKey = day ?? "latest";
+    const ttlMs = day
+      ? (this.isYesterday(day) ? TTL_YESTERDAY_MS : undefined)
+      : TTL_LATEST_MS;
 
-    let url: string;
-    if (level === "enterprise") {
-      url = "GET /enterprises/{enterprise}/copilot/metrics";
-      params.enterprise = apiParams.identifier;
-    } else if (level === "team" && apiParams.teamSlug) {
-      url = "GET /orgs/{org}/team/{team_slug}/copilot/metrics";
-      params.org = apiParams.identifier;
-      params.team_slug = apiParams.teamSlug;
-    } else {
-      url = "GET /orgs/{org}/copilot/metrics";
-      params.org = apiParams.identifier;
+    if (!forceRefresh && !(day && this.isTodayOrFuture(day))) {
+      const cached = await this.cache.readReport("org", cacheSlug, cacheKey, ttlMs);
+      if (cached) return cached as UsageReportResult;
     }
 
-    return await this.requestWithRetry(async () => {
-      const response = await this.octokit.request(url, params);
-      return response.data as CopilotMetricsDay[];
-    });
+    const endpoint = this.buildOrgEndpoint(reportKind, !!day);
+    const params: Record<string, string> = { org };
+    if (day) params.day = day;
+
+    const apiResponse = await this.callMetricsApi(endpoint, params);
+    const content = await this.downloadReportContent(apiResponse.download_links);
+    const result: UsageReportResult = { ...apiResponse, content };
+
+    if (!day || !this.isTodayOrFuture(day)) {
+      await this.cache.writeReport("org", cacheSlug, cacheKey, result);
+    }
+
+    return result;
+  }
+
+  /**
+   * 日付範囲を指定して1日単位のレポートを並列取得する。
+   * 各日について 1-day エンドポイントを呼び出し、結果をまとめて返す。
+   */
+  async fetchReportRange(
+    level: "enterprise" | "org",
+    identifier: string,
+    reportKind: "aggregate" | "users",
+    since: string,
+    until: string,
+    forceRefresh = false
+  ): Promise<UsageReportRangeResult> {
+    const dates = this.getDatesInRange(since, until);
+
+    const settled = await Promise.allSettled(
+      dates.map(date =>
+        level === "enterprise"
+          ? this.fetchEnterpriseReport(identifier, reportKind, date, forceRefresh)
+          : this.fetchOrgReport(identifier, reportKind, date, forceRefresh)
+      )
+    );
+
+    const results: DayResult[] = settled.map((r, i) =>
+      r.status === "fulfilled"
+        ? r.value
+        : { report_day: dates[i], error: r.reason instanceof Error ? r.reason.message : String(r.reason) }
+    );
+
+    return { since, until, results };
   }
 
   async fetchSeats(org: string, forceRefresh: boolean): Promise<CopilotSeatsResponse> {
@@ -142,6 +147,7 @@ export class GitHubClient {
             org,
             page,
             per_page: 100,
+            headers: { "X-GitHub-Api-Version": API_VERSION },
           });
           return response.data as CopilotSeatsResponse;
         });
@@ -156,11 +162,97 @@ export class GitHubClient {
       await this.cache.writeSeats(org, result);
       return result;
     } catch (error) {
-      // ネットワークエラー時はキャッシュからフォールバック
-      const fallback = await this.cache.readSeatsWithFallback(org, 0);
+      const fallback = await this.cache.readSeatsWithFallback(org);
       if (fallback) return fallback;
       throw error;
     }
+  }
+
+  private buildEnterpriseEndpoint(reportKind: "aggregate" | "users", isOneDay: boolean): string {
+    if (reportKind === "aggregate") {
+      return isOneDay
+        ? "GET /enterprises/{enterprise}/copilot/metrics/reports/enterprise-1-day"
+        : "GET /enterprises/{enterprise}/copilot/metrics/reports/enterprise-28-day/latest";
+    }
+    return isOneDay
+      ? "GET /enterprises/{enterprise}/copilot/metrics/reports/users-1-day"
+      : "GET /enterprises/{enterprise}/copilot/metrics/reports/users-28-day/latest";
+  }
+
+  private buildOrgEndpoint(reportKind: "aggregate" | "users", isOneDay: boolean): string {
+    if (reportKind === "aggregate") {
+      return isOneDay
+        ? "GET /orgs/{org}/copilot/metrics/reports/organization-1-day"
+        : "GET /orgs/{org}/copilot/metrics/reports/organization-28-day/latest";
+    }
+    return isOneDay
+      ? "GET /orgs/{org}/copilot/metrics/reports/users-1-day"
+      : "GET /orgs/{org}/copilot/metrics/reports/users-28-day/latest";
+  }
+
+  private async callMetricsApi(
+    endpoint: string,
+    params: Record<string, string>
+  ): Promise<UsageReport1DayResponse | UsageReport28DayResponse> {
+    return this.requestWithRetry(async () => {
+      const response = await this.octokit.request(endpoint, {
+        ...params,
+        headers: { "X-GitHub-Api-Version": API_VERSION },
+      });
+      // 204 No Content: データなし
+      if (!response.data) {
+        const isOneDay = "day" in params;
+        if (isOneDay) {
+          return { download_links: [], report_day: params.day } as UsageReport1DayResponse;
+        }
+        return { download_links: [], report_start_day: "", report_end_day: "" } as UsageReport28DayResponse;
+      }
+      return response.data as UsageReport1DayResponse | UsageReport28DayResponse;
+    });
+  }
+
+  private async downloadReportContent(links: string[]): Promise<unknown[]> {
+    const results: unknown[] = [];
+    for (const link of links) {
+      try {
+        const response = await fetch(link);
+        if (!response.ok) {
+          results.push({ error: `HTTP ${response.status}: ${response.statusText}`, url: link });
+          continue;
+        }
+        const text = await response.text();
+        try {
+          results.push(JSON.parse(text));
+        } catch {
+          results.push(text);
+        }
+      } catch (error) {
+        results.push({ error: error instanceof Error ? error.message : String(error), url: link });
+      }
+    }
+    return results;
+  }
+
+  private getDatesInRange(since: string, until: string): string[] {
+    const dates: string[] = [];
+    const current = new Date(since + "T00:00:00Z");
+    const end = new Date(until + "T00:00:00Z");
+    while (current <= end) {
+      dates.push(current.toISOString().split("T")[0]);
+      current.setUTCDate(current.getUTCDate() + 1);
+    }
+    return dates;
+  }
+
+  private isTodayOrFuture(date: string): boolean {
+    const today = new Date().toISOString().split("T")[0];
+    return date >= today;
+  }
+
+  private isYesterday(date: string): boolean {
+    const yesterday = new Date();
+    yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+    return date === yesterday.toISOString().split("T")[0];
   }
 
   private async requestWithRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
@@ -173,7 +265,7 @@ export class GitHubClient {
         if (status === 401 || status === 403) {
           throw new Error(
             `Authentication/authorization error (${status}). ` +
-            `Ensure your token has scopes: manage_billing:copilot, read:enterprise, read:org`
+            `Ensure your token has the required scopes: manage_billing:copilot, read:enterprise, read:org`
           );
         }
         if (status === 404) {
@@ -193,17 +285,6 @@ export class GitHubClient {
       }
     }
     throw new Error("Unreachable");
-  }
-
-  private getDatesInRange(since: string, until: string): string[] {
-    const dates: string[] = [];
-    const current = new Date(since + "T00:00:00Z");
-    const end = new Date(until + "T00:00:00Z");
-    while (current <= end) {
-      dates.push(current.toISOString().split("T")[0]);
-      current.setUTCDate(current.getUTCDate() + 1);
-    }
-    return dates;
   }
 
   private sleep(ms: number): Promise<void> {

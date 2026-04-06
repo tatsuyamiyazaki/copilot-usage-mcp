@@ -1,70 +1,25 @@
-// GitHub Copilot Metrics API のレスポンス型
+// GitHub Copilot Usage Metrics API レスポンス型 (apiVersion: 2026-03-10)
 
-export interface CopilotMetricsDay {
-  date: string;
-  total_active_users: number;
-  total_engaged_users: number;
-  copilot_ide_code_completions: CopilotIdeCodeCompletions | null;
-  copilot_ide_chat: CopilotIdeChat | null;
-  copilot_dotcom_chat: CopilotDotcomChat | null;
-  copilot_dotcom_pull_requests: CopilotDotcomPullRequests | null;
+// 1日分レポートの API レスポンス
+export interface UsageReport1DayResponse {
+  download_links: string[];
+  report_day: string;
 }
 
-export interface CopilotIdeCodeCompletions {
-  active_users: number;
-  engaged_users: number;
-  languages: CopilotLanguageMetric[];
-  editors: CopilotEditorMetric[];
-  models: CopilotModelMetric[];
+// 28日間レポートの API レスポンス
+export interface UsageReport28DayResponse {
+  download_links: string[];
+  report_start_day: string;
+  report_end_day: string;
 }
 
-export interface CopilotIdeChat {
-  active_users: number;
-  engaged_users: number;
-  editors: CopilotEditorMetric[];
-  models: CopilotModelMetric[];
-}
-
-export interface CopilotDotcomChat {
-  active_users: number;
-  engaged_users: number;
-  models: CopilotModelMetric[];
-}
-
-export interface CopilotDotcomPullRequests {
-  active_users: number;
-  engaged_users: number;
-  repositories: CopilotRepositoryMetric[];
-}
-
-export interface CopilotLanguageMetric {
-  name: string;
-  total_engaged_users: number;
-  total_code_suggestions?: number;
-  total_code_acceptances?: number;
-  total_code_lines_suggested?: number;
-  total_code_lines_accepted?: number;
-}
-
-export interface CopilotEditorMetric {
-  name: string;
-  total_engaged_users: number;
-  total_code_suggestions?: number;
-  total_code_acceptances?: number;
-}
-
-export interface CopilotModelMetric {
-  name: string;
-  total_engaged_users: number;
-  total_code_suggestions?: number;
-  total_code_acceptances?: number;
-}
-
-export interface CopilotRepositoryMetric {
-  name: string;
-  total_engaged_users: number;
-  total_pr_descriptions_generated?: number;
-  total_pr_summaries_generated?: number;
+// ダウンロード済みコンテンツを含む最終的なレポート結果
+export interface UsageReportResult {
+  download_links: string[];
+  report_day?: string;
+  report_start_day?: string;
+  report_end_day?: string;
+  content: unknown[];
 }
 
 // Seats API
@@ -95,16 +50,27 @@ export interface CopilotSeat {
   plan_type: string;
 }
 
+// 日付範囲レポートの1日分エントリ
+export type DayResult = UsageReportResult | { report_day: string; error: string };
+
+// 日付範囲レポート全体
+export interface UsageReportRangeResult {
+  since: string;
+  until: string;
+  results: DayResult[];
+}
+
 // Cache
 export interface CacheEntry<T> {
   data: T;
-  cached_at: string; // ISO 8601
+  cached_at: string;
 }
 
 // Summary
 export interface UsageSummary {
-  enterprise: CopilotMetricsDay[] | { error: string };
-  org: CopilotMetricsDay[] | { error: string };
+  enterprise_metrics: UsageReportResult | { error: string };
+  enterprise_user_metrics: UsageReportResult | { error: string };
+  org_metrics: UsageReportResult | { error: string };
+  org_user_metrics: UsageReportResult | { error: string };
   seats: CopilotSeatsResponse | { error: string };
-  team?: CopilotMetricsDay[] | { error: string };
 }

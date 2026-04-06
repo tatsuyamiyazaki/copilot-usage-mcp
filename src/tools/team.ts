@@ -1,42 +1,26 @@
-import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { GitHubClient } from "../lib/github-client.js";
-import { validateDateRange, validateTeamSlug } from "../lib/validation.js";
+import { z } from "zod";
 
-export function registerTeamTool(server: McpServer, client: GitHubClient, defaultOrg: string) {
+export function registerTeamTool(server: McpServer) {
   server.tool(
     "get_copilot_metrics_for_team",
-    "Get daily Copilot usage metrics for a specific team within an Organization",
+    "[DEPRECATED] Team-level Copilot metrics are no longer available. " +
+    "The GitHub Copilot Usage Metrics API (2026-03-10) provides metrics at the Enterprise and Organization level only. " +
+    "Use 'get_copilot_metrics_for_org' or 'get_copilot_user_metrics_for_org' instead.",
     {
-      org: z.string().optional().describe("Organization name (defaults to GITHUB_ORG env var)"),
-      team_slug: z.string().describe("Team slug (required)"),
-      since: z.string().optional().describe("Start date in YYYY-MM-DD format (defaults to 28 days ago)"),
-      until: z.string().optional().describe("End date in YYYY-MM-DD format (defaults to today)"),
-      force_refresh: z.boolean().optional().describe("Ignore cache and fetch fresh data"),
+      org: z.string().optional().describe("Organization name"),
+      team_slug: z.string().describe("Team slug"),
     },
-    async ({ org, team_slug, since, until, force_refresh }) => {
-      try {
-        const o = org ?? defaultOrg;
-        if (!o) {
-          return { content: [{ type: "text", text: "Organization name is required. Set GITHUB_ORG or pass 'org' parameter." }], isError: true };
-        }
-        validateTeamSlug(team_slug);
-
-        const today = new Date().toISOString().split("T")[0];
-        const defaultSince = new Date();
-        defaultSince.setUTCDate(defaultSince.getUTCDate() - 28);
-        const s = since ?? defaultSince.toISOString().split("T")[0];
-        const u = until ?? today;
-
-        validateDateRange(s, u);
-
-        const cacheSlug = `${o}/${team_slug}`;
-        const metrics = await client.fetchMetrics("team", cacheSlug, s, u, force_refresh ?? false, { identifier: o, teamSlug: team_slug });
-
-        return { content: [{ type: "text", text: JSON.stringify(metrics, null, 2) }] };
-      } catch (error) {
-        return { content: [{ type: "text", text: `Error: ${error instanceof Error ? error.message : String(error)}` }], isError: true };
-      }
+    async () => {
+      return {
+        content: [{
+          type: "text",
+          text: "This tool is no longer available. The GitHub Copilot Usage Metrics API (apiVersion: 2026-03-10) " +
+                "does not provide team-level metrics. Use 'get_copilot_metrics_for_org' or " +
+                "'get_copilot_user_metrics_for_org' for organization-level data.",
+        }],
+        isError: true,
+      };
     }
   );
 }

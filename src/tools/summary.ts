@@ -1,7 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { GitHubClient } from "../lib/github-client.js";
-import { validateDateRange, validateTeamSlug } from "../lib/validation.js";
 import type { UsageSummary } from "../lib/types.js";
 
 export function registerSummaryTool(
@@ -12,63 +11,54 @@ export function registerSummaryTool(
 ) {
   server.tool(
     "get_copilot_usage_summary",
-    "Get a combined summary of Copilot usage across Enterprise, Organization, and seat assignments. Optionally include team-level metrics.",
+    "Get a combined summary of Copilot usage across Enterprise and Organization (aggregate metrics, user metrics, and seat assignments). " +
+    "Uses the latest 28-day reports for all metrics.",
     {
-      since: z.string().optional().describe("Start date in YYYY-MM-DD format (defaults to 28 days ago)"),
-      until: z.string().optional().describe("End date in YYYY-MM-DD format (defaults to today)"),
-      team_slug: z.string().optional().describe("Team slug to include team-level metrics"),
       force_refresh: z.boolean().optional().describe("Ignore cache and fetch fresh data"),
     },
-    async ({ since, until, team_slug, force_refresh }) => {
+    async ({ force_refresh }) => {
       try {
-        const today = new Date().toISOString().split("T")[0];
-        const defaultSince = new Date();
-        defaultSince.setUTCDate(defaultSince.getUTCDate() - 28);
-        const s = since ?? defaultSince.toISOString().split("T")[0];
-        const u = until ?? today;
         const fr = force_refresh ?? false;
 
-        validateDateRange(s, u);
-        if (team_slug) validateTeamSlug(team_slug);
-
         const summary: UsageSummary = {
-          enterprise: { error: "Not configured" },
-          org: { error: "Not configured" },
+          enterprise_metrics: { error: "Not configured" },
+          enterprise_user_metrics: { error: "Not configured" },
+          org_metrics: { error: "Not configured" },
+          org_user_metrics: { error: "Not configured" },
           seats: { error: "Not configured" },
         };
 
-        // Enterprise metrics
         if (defaultEnterprise) {
           try {
-            summary.enterprise = await client.fetchMetrics("enterprise", defaultEnterprise, s, u, fr, { identifier: defaultEnterprise });
+            summary.enterprise_metrics = await client.fetchEnterpriseReport(defaultEnterprise, "aggregate", undefined, fr);
           } catch (e) {
-            summary.enterprise = { error: e instanceof Error ? e.message : String(e) };
+            summary.enterprise_metrics = { error: e instanceof Error ? e.message : String(e) };
+          }
+
+          try {
+            summary.enterprise_user_metrics = await client.fetchEnterpriseReport(defaultEnterprise, "users", undefined, fr);
+          } catch (e) {
+            summary.enterprise_user_metrics = { error: e instanceof Error ? e.message : String(e) };
           }
         }
 
-        // Org metrics
         if (defaultOrg) {
           try {
-            summary.org = await client.fetchMetrics("org", defaultOrg, s, u, fr, { identifier: defaultOrg });
+            summary.org_metrics = await client.fetchOrgReport(defaultOrg, "aggregate", undefined, fr);
           } catch (e) {
-            summary.org = { error: e instanceof Error ? e.message : String(e) };
+            summary.org_metrics = { error: e instanceof Error ? e.message : String(e) };
           }
 
-          // Seats
+          try {
+            summary.org_user_metrics = await client.fetchOrgReport(defaultOrg, "users", undefined, fr);
+          } catch (e) {
+            summary.org_user_metrics = { error: e instanceof Error ? e.message : String(e) };
+          }
+
           try {
             summary.seats = await client.fetchSeats(defaultOrg, fr);
           } catch (e) {
             summary.seats = { error: e instanceof Error ? e.message : String(e) };
-          }
-        }
-
-        // Team metrics (optional)
-        if (team_slug && defaultOrg) {
-          try {
-            const cacheSlug = `${defaultOrg}/${team_slug}`;
-            summary.team = await client.fetchMetrics("team", cacheSlug, s, u, fr, { identifier: defaultOrg, teamSlug: team_slug });
-          } catch (e) {
-            summary.team = { error: e instanceof Error ? e.message : String(e) };
           }
         }
 

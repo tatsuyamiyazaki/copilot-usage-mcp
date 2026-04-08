@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { config } from "dotenv";
+import { parseArgs } from "node:util";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Cache } from "./lib/cache.js";
@@ -11,21 +11,30 @@ import { registerTeamTool } from "./tools/team.js";
 import { registerSeatsTool } from "./tools/seats.js";
 import { registerSummaryTool } from "./tools/summary.js";
 
-config({ quiet: true });
+const { values: args } = parseArgs({
+  options: {
+    token: { type: "string" },
+    enterprise: { type: "string" },
+    org: { type: "string" },
+    "cache-dir": { type: "string" },
+  },
+  strict: false,
+});
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
 
-const token = process.env.GITHUB_TOKEN;
+const token = args.token as string | undefined;
 if (!token) {
-  console.error("GITHUB_TOKEN environment variable is required");
+  console.error("--token is required");
   process.exit(1);
 }
 
-const enterprise = process.env.GITHUB_ENTERPRISE ?? "";
-const org = process.env.GITHUB_ORG ?? "";
-const cacheDir = process.env.CACHE_DIR
-  ? path.resolve(process.env.CACHE_DIR)
+const enterprise = (args.enterprise as string | undefined) ?? "";
+const org = (args.org as string | undefined) ?? "";
+const rawCacheDir = args["cache-dir"] as string | undefined;
+const cacheDir = rawCacheDir
+  ? path.resolve(rawCacheDir)
   : path.join(projectRoot, "cache");
 
 const cache = new Cache(cacheDir);

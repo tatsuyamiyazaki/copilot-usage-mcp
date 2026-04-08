@@ -24,15 +24,20 @@ const { values: args } = parseArgs({
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
 
-const token = args.token as string | undefined;
+const token = (args.token as string | undefined) ?? process.env.GITHUB_TOKEN;
 if (!token) {
-  console.error("--token is required");
+  console.error("--token or GITHUB_TOKEN env var is required");
   process.exit(1);
 }
 
-const enterprise = (args.enterprise as string | undefined) ?? "";
-const org = (args.org as string | undefined) ?? "";
-const rawCacheDir = args["cache-dir"] as string | undefined;
+const enterprise =
+  (args.enterprise as string | undefined) ??
+  process.env.GITHUB_ENTERPRISE ??
+  "";
+const org =
+  (args.org as string | undefined) ?? process.env.GITHUB_ORG ?? "";
+const rawCacheDir =
+  (args["cache-dir"] as string | undefined) ?? process.env.CACHE_DIR;
 const cacheDir = rawCacheDir
   ? path.resolve(rawCacheDir)
   : path.join(projectRoot, "cache");

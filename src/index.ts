@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { execSync } from "node:child_process";
 import { parseArgs } from "node:util";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,7 +25,41 @@ const { values: args } = parseArgs({
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
 
-const token = (args.token as string | undefined) ?? process.env.GITHUB_TOKEN;
+// Windows レジストリからユーザー/システム環境変数を読み込む
+function readWindowsEnvVar(name: string): string | undefined {
+  const keys = [
+    "HKCU\\Environment",
+    "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",
+  ];
+  for (const key of keys) {
+    try {
+      const output = execSync(`reg query "${key}" /v "${name}"`, {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        windowsHide: true,
+      });
+      const match = output.match(/\s+REG_(?:SZ|EXPAND_SZ)\s+(.+)/);
+      if (match) return match[1].trim();
+    } catch {
+      // 次のキーを試す
+    }
+  }
+  return undefined;
+}
+
+// 環境変数を取得する（process.env → Windows レジストリ の順でフォールバック）
+function getEnvVar(name: string): string | undefined {
+  const value = process.env[name];
+  // "${VAR_NAME}" 形式のプレースホルダーは未解決とみなす
+  if (value && !/^\$\{[^}]+\}$/.test(value)) return value;
+
+  if (process.platform === "win32") {
+    return readWindowsEnvVar(name);
+  }
+  return undefined;
+}
+
+const token = (args.token as string | undefined) ?? getEnvVar("GITHUB_TOKEN");
 if (!token) {
   console.error("--token or GITHUB_TOKEN env var is required");
   process.exit(1);
@@ -32,12 +67,12 @@ if (!token) {
 
 const enterprise =
   (args.enterprise as string | undefined) ??
-  process.env.GITHUB_ENTERPRISE ??
+  getEnvVar("GITHUB_ENTERPRISE") ??
   "";
 const org =
-  (args.org as string | undefined) ?? process.env.GITHUB_ORG ?? "";
+  (args.org as string | undefined) ?? getEnvVar("GITHUB_ORG") ?? "";
 const rawCacheDir =
-  (args["cache-dir"] as string | undefined) ?? process.env.CACHE_DIR;
+  (args["cache-dir"] as string | undefined) ?? getEnvVar("CACHE_DIR");
 const cacheDir = rawCacheDir
   ? path.resolve(rawCacheDir)
   : path.join(projectRoot, "cache");

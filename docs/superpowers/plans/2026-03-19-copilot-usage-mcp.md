@@ -101,7 +101,7 @@ cache/
 - [ ] **Step 5: .env.example を作成**
 
 ```
-GITHUB_TOKEN=ghp_xxxx
+GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxxx
 GITHUB_ENTERPRISE=my-enterprise
 GITHUB_ORG=my-org
 CACHE_DIR=./cache
@@ -1148,9 +1148,9 @@ config();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
 
-const token = process.env.GITHUB_TOKEN;
+const token = process.env.GITHUB_PERSONAL_ACCESS_TOKEN;
 if (!token) {
-  console.error("GITHUB_TOKEN environment variable is required");
+  console.error("GITHUB_PERSONAL_ACCESS_TOKEN environment variable is required");
   process.exit(1);
 }
 
@@ -1236,7 +1236,7 @@ Expected: コンパイル成功
 #       "command": "node",
 #       "args": ["C:/path/to/copilot-usage/dist/index.js"],
 #       "env": {
-#         "GITHUB_TOKEN": "ghp_xxxx",
+#         "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_xxxx",
 #         "GITHUB_ENTERPRISE": "my-enterprise",
 #         "GITHUB_ORG": "my-org"
 #       }

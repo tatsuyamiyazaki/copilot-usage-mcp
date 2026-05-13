@@ -36,7 +36,7 @@ npm run build
 
 | 変数名 | 必須 | 説明 |
 |--------|------|------|
-| `GITHUB_TOKEN` | Yes | GitHub Personal Access Token |
+| `GITHUB_PERSONAL_ACCESS_TOKEN` | Yes | GitHub Personal Access Token |
 | `GITHUB_ENTERPRISE` | No | Enterprise slug |
 | `GITHUB_ORG` | No | Organization 名 |
 | `CACHE_DIR` | No | キャッシュディレクトリ（デフォルト: `./cache`） |
@@ -52,7 +52,7 @@ Claude Desktop の場合、`claude_desktop_config.json` に以下を追加しま
       "command": "node",
       "args": ["path/to/copilot-usage-mcp/dist/index.js"],
       "env": {
-        "GITHUB_TOKEN": "ghp_xxxxxxxxxxxx",
+        "GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_xxxxxxxxxxxx",
         "GITHUB_ENTERPRISE": "your-enterprise",
         "GITHUB_ORG": "your-org"
       }

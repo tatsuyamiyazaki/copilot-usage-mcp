@@ -59,9 +59,9 @@ function getEnvVar(name: string): string | undefined {
   return undefined;
 }
 
-const token = (args.token as string | undefined) ?? getEnvVar("GITHUB_TOKEN");
+const token = (args.token as string | undefined) ?? getEnvVar("GITHUB_PERSONAL_ACCESS_TOKEN");
 if (!token) {
-  console.error("--token or GITHUB_TOKEN env var is required");
+  console.error("--token or GITHUB_PERSONAL_ACCESS_TOKEN env var is required");
   process.exit(1);
 }
 

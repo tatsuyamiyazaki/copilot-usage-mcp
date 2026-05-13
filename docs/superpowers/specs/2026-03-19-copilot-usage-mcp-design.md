@@ -107,7 +107,7 @@ copilot-usage/
 ### Environment Variables
 
 ```
-GITHUB_TOKEN=ghp_xxxx           # Personal Access Token (必須)
+GITHUB_PERSONAL_ACCESS_TOKEN=ghp_xxxx           # Personal Access Token (必須)
 GITHUB_ENTERPRISE=my-enterprise # Enterprise スラッグ (必須)
 GITHUB_ORG=my-org               # Organization 名 (必須)
 CACHE_DIR=./cache               # キャッシュ保存先 (オプション)
